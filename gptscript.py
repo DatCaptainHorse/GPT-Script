@@ -259,7 +259,7 @@ while True:
 		if len(inText) >= wordLength:
 			wordLength = len(inText) + length
 
-	inputs = tokenizer.encode(inText + tokenizer.eos_token, return_tensors="pt").to(dev)
+	inputs = tokenizer.encode(inText + '\n', return_tensors="pt").to(dev)
 	inputs = inputs.to(torch.int32)
 	# TODO: Choose output for next input
 	stripped_inputs = torch.cat([outputs if outcount == 1 else outputs[0], inputs], dim=-1).to(dev) if firstDone else inputs
