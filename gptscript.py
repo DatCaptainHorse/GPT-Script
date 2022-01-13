@@ -180,12 +180,11 @@ temp = 0.9 # temperature
 topk = 50 # top k sampling
 topp = 0.9 # top p sampling
 length = 100 # max length of generated output
-outcount = 1 # amount of generated outputs
+outCount = 1 # amount of generated outputs
 lenp = 1.0 # length penalty
 repp = 1.0 # repetition penalty
 
 outputs = None
-firstDone = False
 wordLength = length
 tokenLength = 0
 
@@ -234,14 +233,13 @@ while True:
 			wordLength = int(re.split("(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["outputcount"]):
-			outcount = int(re.split("(\.\w+) (\d+)", inText.lower())[2])
+			outCount = int(re.split("(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["resethistory"]):
 			print("\033[H\033[2J\033[H")
 			wordLength = length
 			tokenLength = 0
 			outputs = None
-			firstDone = False
 			continue
 		elif inText.lower().startswith(commands["exitscript"]):
 			break
@@ -260,9 +258,8 @@ while True:
 			wordLength = len(inText) + length
 
 	inputs = tokenizer.encode(inText + '\n', return_tensors="pt").to(dev)
-	inputs = inputs.to(torch.int32)
 	# TODO: Choose output for next input
-	stripped_inputs = torch.cat([outputs if outcount == 1 else outputs[0], inputs], dim=-1).to(dev) if firstDone else inputs
+	stripped_inputs = torch.cat([outputs if outCount == 1 else outputs[0], inputs], dim=-1).to(dev) if outputs is not None and len(outputs) > 0 else inputs
 	print(f"{language['info_newlength']} {tokenLength} + {len(stripped_inputs[0])}")
 	tokenLength += len(stripped_inputs[0])
 	with torch.cuda.amp.autocast(enabled=usingGPU):
@@ -270,7 +267,7 @@ while True:
 			stripped_inputs,
 			do_sample=True,
 			max_length=wordLength, top_p=topp, top_k=topk, temperature=temp,
-			num_return_sequences=outcount, length_penalty=lenp, repetition_penalty=repp,
+			num_return_sequences=outCount, length_penalty=lenp, repetition_penalty=repp,
 			pad_token_id=tokenizer.eos_token_id
 		).to(dev)
 
@@ -287,5 +284,3 @@ while True:
 			print("\n### " + language["info_output"] + f" {i+1} ###\n{tokenizer.decode(outputs[i], skip_special_tokens=True)}\n##################\n")
 		print(f"{language['info_newlength']} {tokenLength} + {len(outputs[0])}")
 		tokenLength += len(outputs[0])
-
-	firstDone = True
