@@ -71,7 +71,7 @@ languages = \
 }
 
 # Default language
-language = languages["fi"]
+language = languages["en"]
 
 # Command strings (not restriced by chosen language so they work both ways)
 commands = \
