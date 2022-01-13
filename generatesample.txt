@@ -1,0 +1,16 @@
+Teleport me to the forest.
+[CMD_TELEPORT:Forest].
+
+Get me to the caves.
+[CMD_TELEPORT:Caves].
+
+I need to go to desert.
+[CMD_TELEPORT:Desert].
+
+I need fast travel to town.
+[CMD_TELEPORT:Town].
+
+I need to get to the forest.
+[CMD_TELEPORT:Forest].
+
+Get me to town.
