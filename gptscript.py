@@ -24,6 +24,25 @@ import re
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 
+# Help string, just English for now
+help_text = """
+.read - Reads a file (preferably text) as an input. Example: .read sample.txt
+.addread - Reads a file and asks for additional input. Example: .addread sample.txt
+.multiline - Multiline input, press Ctrl + Z and Enter when done.
+.stop, .exit, .quit - Exit from GPT-Script.
+.reset - Clear the current history for model.
+.count - (1) Amount of outputs generated for same input. Example: .count 3
+.length - (100) Maximum length for output, doesn't actually seem to work. Example: .length 150
+.temp - (0.9) Temperature parameter, meaning how "creative" the output can be. Lower value means the model will have less creative outputs. Example: .temp 0.7
+.lenp - (1.0) Length penalty, higher value penalizes outputs with longer length, favoring shorter ones. Example: .lenp 1.3
+.repp - (1.0) Repetition penalty, higher value penalizes repetition in output, favoring different words. Example: .repp 1.3
+.topk - (50) Top-K sampling, in super simple words; how many words should be considered for output. Example: .topk 80
+.topp - (0.9) Top-P sampling, in super simple words as well; filters out words with probability, threshold being Top-P value. Example: .topp 0.95
+.sampling - (True) Toggles whether to use Greedy or Top-P + Top-K sampling (True is Top-P + Top-K sampling).
+.cutsentence - (True) Toggles whether to attempt to cut sentence after each output (True is cutting).
+.help, .? - Prints help text.
+"""
+
 # Language strings
 languages = \
 { 
@@ -46,6 +65,8 @@ languages = \
 			"input_prompt": "Input: ",
 			"input_additional": "Additional input: ",
 			"input_multiline": "v Multiline input, press Ctrl + Z and Enter when done v",
+			"info_sampling": "Using sampling: ",
+			"info_cutsentence": "Cutting sentence: ",
 		  },
 
 	"fi": { 
@@ -67,6 +88,8 @@ languages = \
 			"input_prompt": "Syöte: ",
 			"input_additional": "Lisäsyöte: ",
 			"input_multiline": "v Monirivi syöte, paina Ctrl + Z ja Enter kun valmis v",
+			"info_sampling": "Käytetään näytettä: ",
+			"info_cutsentence": "Leikataan lause: ",
 		  },
 }
 
@@ -88,17 +111,25 @@ commands = \
 	"resethistory": (".reset", ".tyhjää"),
 	"exitscript": (".stop", ".exit", ".quit", ".poistu", ".sulje", ".lopeta"),
 	"multilineinput": (".multiline", ".monirivi"),
+	"help": (".help", ".apua", ".?"),
+	"do_sampling": (".sampling", ".näyte"),
+	"cut_sentence": (".cutsentence", ".leikkaalause"),
 }
 
 # Defaults
 useGPUifAvailable = False
-GPTModels = { 
-				"EleutherAI/gpt-neo-125M": [True, 0.5], 
-				"EleutherAI/gpt-neo-1.3B": [False, 5], 
-				"EleutherAI/gpt-neo-2.7B": [False, 10],
-				"EleutherAI/gpt-j-6B": [False, 25],
-				"bigscience/T0_3B": [False, 11]
-			}
+GPTModels = \
+{
+	"EleutherAI/gpt-neo-125M": [True, 0.5],
+	"EleutherAI/gpt-neo-1.3B": [False, 5],
+	"EleutherAI/gpt-neo-2.7B": [False, 10],
+	"EleutherAI/gpt-j-6B": [False, 25],
+	"bigscience/T0_3B": [False, 11],
+	"bigscience/bloom-350m": [False, 2],
+	"bigscience/bloom-1b3": [False, 6],
+	"bigscience/bloom-2b5": [False, 12],
+	"bigscience/bloom-6b3": [False, 28], # Just an estimate, couldn't fit into 32GB of RAM on my machine :(
+}
 
 # Sets specific model as "selected" (True, others False)
 # There is probably a better way to do this, however this works for now.
@@ -114,6 +145,19 @@ def getSelectedModel():
 	for k, v in GPTModels.items():
 		if v[0]:
 			return k
+
+# Cuts output to first sentence
+def cutSentence(text):
+	if "\n" in text:
+		return text[:text.find("\n")]
+	elif "." in text:
+		return text[:text.find(".")]
+	elif "!" in text:
+		return text[:text.find("!")]
+	elif "?" in text:
+		return text[:text.find("?")]
+	else:
+		return text
 
 while True:
 	print("\033[H\033[2J\033[H")
@@ -146,7 +190,7 @@ while True:
 			if k == language["id_language"]:
 				language = languages[next(iterator, "en")]
 	elif option == 3:
-		useGPUifAvailable ^= 1
+		useGPUifAvailable = not useGPUifAvailable
 	else:
 		for i, k in enumerate(GPTModels):
 			if i == option - modelOffset:
@@ -179,10 +223,12 @@ print("\033[H\033[2J\033[H")
 temp = 0.9 # temperature
 topk = 50 # top k sampling
 topp = 0.9 # top p sampling
-length = 100 # max length of generated output
+length = 50 # max length of generated output
 outCount = 1 # amount of generated outputs
 lenp = 1.0 # length penalty
 repp = 1.0 # repetition penalty
+doSampling = True # do sampling
+doCutSentence = True # cuts output sentence
 
 outputs = None
 wordLength = length
@@ -192,18 +238,15 @@ while True:
 	inText = input(language["input_prompt"])
 	if inText.startswith("."):
 		if inText.startswith(commands["readfile"]):
-			splitted = re.split("(\.\w+) (\w+\.\w+)", inText)[2]
+			splitted = re.split(r"(\.\w+) (\w+\.\w+)", inText)[2]
 			try:
 				with open(splitted, "r") as fl:
 					inText = fl.read()
 			except:
 				print(language["error_unknownfile"])
 				continue
-
-			if len(inText) >= wordLength:
-				wordLength = len(inText) + length
 		elif inText.startswith(commands["readfile_additive"]):
-			splitted = re.split("(\.\w+) (\w+\.\w+)", inText)[2]
+			splitted = re.split(r"(\.\w+) (\w+\.\w+)", inText)[2]
 			try:
 				with open(splitted, "r") as fl:
 					inText = fl.read()
@@ -212,32 +255,29 @@ while True:
 				continue
 
 			inText += input(language["input_additional"])
-			if len(inText) >= wordLength:
-				wordLength = len(inText) + length
 		elif inText.lower().startswith(commands["temperature"]):
-			temp = float(re.split("(\.\w+) (\d+\.\d+)", inText.lower())[2])
+			temp = float(re.split(r"(\.\w+) (\d+\.\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["length_penalty"]):
-			lenp = float(re.split("(\.\w+) (\d+\.\d+)", inText.lower())[2])
+			lenp = float(re.split(r"(\.\w+) (\d+\.\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["repetition_penalty"]):
-			repp = float(re.split("(\.\w+) (\d+\.\d+)", inText.lower())[2])
+			repp = float(re.split(r"(\.\w+) (\d+\.\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["top_k_sampling"]):
-			topk = int(re.split("(\.\w+) (\d+)", inText.lower())[2])
+			topk = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["top_p_sampling"]):
-			topp = float(re.split("(\.\w+) (\d+\.\d+)", inText.lower())[2])
+			topp = float(re.split(r"(\.\w+) (\d+\.\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["wordlength"]):
-			wordLength = int(re.split("(\.\w+) (\d+)", inText.lower())[2])
+			wordLength = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["outputcount"]):
-			outCount = int(re.split("(\.\w+) (\d+)", inText.lower())[2])
+			outCount = int(re.split(r"(\.\w+) (\d+)", inText.lower())[2])
 			continue
 		elif inText.lower().startswith(commands["resethistory"]):
 			print("\033[H\033[2J\033[H")
-			wordLength = length
 			tokenLength = 0
 			outputs = None
 			continue
@@ -250,37 +290,59 @@ while True:
 					inText += input() + "\n"
 				except EOFError:
 					break
+		elif inText.lower().startswith(commands["do_sampling"]):
+			doSampling = not doSampling
+			print(language["info_sampling"] + str(doSampling))
+			continue
+		elif inText.lower().startswith(commands["help"]):
+			print(help_text)
+			continue
+		elif inText.lower().startswith(commands["cut_sentence"]):
+			doCutSentence = not doCutSentence
+			print(language["info_cutsentence"] + str(doCutSentence))
+			continue
 		else:
 			print(language["error_unknowncommand"])
 			continue
-	else:
-		if len(inText) >= wordLength:
-			wordLength = len(inText) + length
 
-	inputs = tokenizer.encode(inText + '\n', return_tensors="pt").to(dev)
+	inputs = tokenizer.encode("\n" + inText + "\n", return_tensors="pt").to(dev)
 	# TODO: Choose output for next input
 	stripped_inputs = torch.cat([outputs if outCount == 1 else outputs[0], inputs], dim=-1).to(dev) if outputs is not None and len(outputs) > 0 else inputs
-	print(f"{language['info_newlength']} {tokenLength} + {len(stripped_inputs[0])}")
-	tokenLength += len(stripped_inputs[0])
 	with torch.cuda.amp.autocast(enabled=usingGPU):
 		outputs = model.generate(
 			stripped_inputs,
-			do_sample=True,
-			max_length=wordLength, top_p=topp, top_k=topk, temperature=temp,
-			num_return_sequences=outCount, length_penalty=lenp, repetition_penalty=repp,
+			do_sample=doSampling,
+			max_new_tokens=wordLength, top_p=topp if doSampling else 1.0, top_k=topk if doSampling else 0,
+			temperature=temp if doSampling else 1.0, num_return_sequences=outCount,
+			length_penalty=lenp if doSampling else 1.0, repetition_penalty=repp if doSampling else 1.0,
 			pad_token_id=tokenizer.eos_token_id
 		).to(dev)
 
 	# T0 model gets rid of input by itself, while GPT-Neo and GPT-J do not
 	if getSelectedModel() != "bigscience/T0_3B":
-		wordLength += len(tokenizer.decode(outputs[0][stripped_inputs.shape[-1]:], skip_special_tokens=True))
+		# Empty temporary tensor
+		tmp_outputs = torch.zeros_like(outputs)
 		for i in range(len(outputs)):
-			print("\n### " + language["info_output"] + f" {i+1} ###\n{tokenizer.decode(outputs[i][stripped_inputs.shape[-1]:], skip_special_tokens=True)}\n##################\n")
-		print(f"{language['info_newlength']} {tokenLength} + {len(outputs[0][stripped_inputs.shape[-1]:])}")
-		tokenLength += len(outputs[0][stripped_inputs.shape[-1]:])
+			out = tokenizer.decode(outputs[i][stripped_inputs.shape[-1]:], skip_special_tokens=True)
+			if doCutSentence:
+				out = cutSentence(out)
+
+			# TODO: Choose output for next input
+			tmp_outputs = torch.cat([stripped_inputs, tokenizer.encode(out, return_tensors="pt").to(dev)], dim=-1)
+
+			print("\n### " + language["info_output"] + f" {i+1} ###\n{out}\n##################\n")
+
+		outputs = tmp_outputs
+
+		newLength = len(outputs[0])
+		print(f"{language['info_newlength']} {tokenLength} -> {newLength}")
+		tokenLength = newLength
 	else:
-		wordLength += len(tokenizer.decode(outputs[0], skip_special_tokens=True))
 		for i in range(len(outputs)):
-			print("\n### " + language["info_output"] + f" {i+1} ###\n{tokenizer.decode(outputs[i], skip_special_tokens=True)}\n##################\n")
-		print(f"{language['info_newlength']} {tokenLength} + {len(outputs[0])}")
-		tokenLength += len(outputs[0])
+			out = tokenizer.decode(outputs[i], skip_special_tokens=True)
+			# T0 doesn't need to cut the sentence, it's Seq2Seq model
+			print("\n### " + language["info_output"] + f" {i+1} ###\n{out}\n##################\n")
+
+		newLength = len(outputs[0])
+		print(f"{language['info_newlength']} {tokenLength} -> {newLength}")
+		tokenLength = newLength

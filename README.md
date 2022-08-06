@@ -21,3 +21,6 @@ Run the script with Python by running command `python gptscript.py` while in sam
 * `.repp` - (1.0) Repetition penalty, higher value penalizes repetition in output, favoring different words. Example: `.repp 1.3`
 * `.topk` - (50) Top-K sampling, in super simple words; how many words should be considered for output. Example: `.topk 80`
 * `.topp` - (0.9) Top-P sampling, in super simple words as well; filters out words with probability, threshold being Top-P value. Example: `.topp 0.95`
+* `.sampling` - (True) Toggles whether to use Greedy or Top-P + Top-K sampling (True is Top-P + Top-K).
+* `.cutsentence` - (True) Toggles whether to attempt to cut sentence after each output (True is cutting).
+* `.help`, `.?` - Prints help text.

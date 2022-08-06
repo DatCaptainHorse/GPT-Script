@@ -2,3 +2,5 @@ torch
 protobuf
 transformers
 sentencepiece
+accelerate
+numpy
