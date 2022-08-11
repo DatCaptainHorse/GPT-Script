@@ -125,7 +125,7 @@ GPTModels = \
 	"EleutherAI/gpt-neo-2.7B": [False, 10],
 	"EleutherAI/gpt-j-6B": [False, 25],
 	"bigscience/T0_3B": [False, 11],
-	"bigscience/bloom-350m": [False, 2],
+	"bigscience/bloom-560m": [False, 2],
 	"bigscience/bloom-1b3": [False, 6],
 	"bigscience/bloom-2b5": [False, 12],
 	"bigscience/bloom-6b3": [False, 28], # Just an estimate, couldn't fit into 32GB of RAM on my machine :(
