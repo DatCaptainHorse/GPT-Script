@@ -1,7 +1,8 @@
 # GPT-Script
 Small and simple Python script for playing with GPT and T0 models.
 
-GPT-Script has been tested with Python 3.9.9 and PyTorch 1.10.1.
+## Requirements
+GPT-Script has been tested with Python 3.10 and PyTorch 1.12.
 
 ## Usage
 Grab requirements by running command `pip install -r requirements.txt` or `pip install --user -r requirements.txt`.
